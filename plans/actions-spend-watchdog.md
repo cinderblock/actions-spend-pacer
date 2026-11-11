@@ -44,7 +44,17 @@ Background: the ops thread "Boot-check app images before Renovate deploys them"
 - Don't edit ops or apitorrent workflows; only toggle via the API, only after a yes.
 - Bun for dev/test (`bun.lock` committed); the action itself runs on GitHub's Node runtime.
 
-## Proposed design (awaiting yes on name + layout)
+## Answers recorded (2026-11-10 ~7:15 PM PST (03:15Z Nov 11))
+
+- **Name approved:** `cinderblock/actions-spend-pacer`. Layout approved as proposed. **License: MIT.**
+- **Hard-stop verification is low priority.** The user's aim is preventing runaways (coming
+  back to a $200 bill), not perfect uptime. Observe passively; no controlled budget test.
+- **No permanent allow-list for ops deploys.** Instead a **manual override** an agent can apply
+  on the user's explicit instruction for rare cases (time-limited, see design).
+- **Governed set: all private repos**, until decided otherwise.
+- **Resume headroom: $0.50.**
+
+## Design (approved; details may evolve)
 
 ### Name
 
@@ -135,6 +145,31 @@ Why not the alternatives:
   hand-editable (delete an entry to keep that workflow off), and works the same for
   adopters. Concurrency group on the workflow serialises runs so there is no race.
 
+### Manual override (user decision: replaces a permanent ops allow-list)
+
+`overrides` in the state: `{ match, until, reason }` using allow-list match syntax. While
+unexpired, matching workflows are never paused, and a matching paused workflow is resumed on
+the next run regardless of spend. CLI: `actions-spend-pacer override ops/deploy.yml --for 4h
+--reason "..." --now` (`--now` re-enables immediately). Agents only use it on the user's
+explicit instruction. Expired overrides are pruned.
+
+### Write ordering (crash safety)
+
+Pause: record intent in state → persist → disable. A recorded-but-still-active workflow is
+dropped on the next run. Resume: enable → remove from state → persist. A resumed-but-still-
+recorded workflow is seen as `active` and dropped. Neither order can re-enable something the
+user disabled by hand, and neither leaves a pacer pause unrecorded.
+
+### Privacy in a public repo (found during design; needs user decision)
+
+Run logs, job summaries and issues in a public repo are public. Writing governed private repo
+names / workflow names there leaks them (one private repo's name even looks like a token).
+Design: `redact` input (default `auto` = on when the running repo is public) replaces names with
+stable opaque labels (`repo-3f9a2c`, workflow id) in logs, summaries and the issue. The state
+must still hold real names to re-enable, so it goes either (A) in an issue on a **private**
+`state-repo` (PAT gains Issues: read/write on that one repo; no Actions minutes needed for it),
+or (B) encrypted in the public issue with a key secret. Recommendation: A.
+
 ### Extras worth building in
 
 - **Keepalive.** GitHub auto-disables scheduled workflows in *public* repos after 60 days
@@ -179,8 +214,8 @@ Why not the alternatives:
 
 ## Plan / steps
 
-1. **← current** Plan doc + proposed name/layout → user yes.
-2. Scaffold repo locally (TS, bun test, action.yml), allowance + plan logic with tests.
+1. Plan doc + proposed name/layout → user yes. **Done.**
+2. **← current** Scaffold repo locally (TS, bun test, action.yml), allowance + plan logic with tests.
 3. Billing + workflow inventory + CLI dry run against `cinderblock` using the local gh token
    (read-only). Show the output to the user.
 4. Stage: create public GitHub repo; create fine-grained PAT (user does this, steps one at a
@@ -194,7 +229,7 @@ Why not the alternatives:
 - [x] Docs research: billing permissions, workflow API, public-repo billing
 - [x] Read-only snapshot of MTD spend and private-repo workflow inventory
 - [x] Local repo initialised (`master`)
-- [ ] Name + layout approved
+- [x] Name + layout approved (MIT, all private, $0.50 headroom, override not allow-list)
 - [ ] Core logic + tests
 - [ ] Local dry run shown to user
 - [ ] GitHub repo created (needs yes)
@@ -205,20 +240,9 @@ Why not the alternatives:
 
 ## Open questions for the user
 
-1. **Verifying "public repo keeps running after the hard stop".** Recommendation: observe it
-   naturally. At the current pace the $20 stop trips within days; keep the pacer's dry-run
-   schedule running before then and check its runs continue afterwards. A controlled test
-   (a $0 stop-usage budget on a throwaway org with one public repo) is the alternative, but
-   it changes account billing settings, so only with your yes.
-2. **Ops Server Deploys during a pause.** We're $5.53 over today, so a live pause would last
-   about 6 days. Recommendation: allow-list `ops/.github/workflows/deploy.yml` (and maybe
-   `credential-expiry.yml`) so deploys stay possible; pause Renovate/Caddy checks/apitorrent.
-3. **Governed set**: all private repos (default) or an explicit list? Recommendation: all
-   private, with the allow-list above.
-4. **Resume headroom**: resume exactly at allowance, or with a buffer (e.g. $1)?
-   Recommendation: $0.50 so a resume isn't immediately followed by a re-pause.
-5. **License**: MIT? (recommended)
-6. **Name**: `actions-spend-pacer` (recommended) vs `actions-spend-watchdog`.
+1. **Where state + detailed notifications live** given the public-repo privacy issue:
+   (A) issue in a private state repo (recommended), (B) encrypted state in the public issue,
+   (C) accept private repo names being public.
 
 ## Things not to do
 
@@ -226,4 +250,5 @@ Why not the alternatives:
 - Don't infer "watchdog disabled this" from `disabled_manually`; only trust the state record.
 - Don't touch ops/apitorrent workflow files; only toggle through the API, after a yes.
 - Don't create the repo, token, secret, schedule, or a live run without an explicit yes.
+- Don't print private repo/workflow names in public logs, summaries or issues.
 - Don't widen the PAT (no Contents, no Administration on repos) to solve state storage.

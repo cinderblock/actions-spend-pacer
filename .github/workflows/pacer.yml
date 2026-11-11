@@ -1,0 +1,69 @@
+# Reusable workflow: the one-file way to adopt the pacer. See README for a caller example.
+name: Actions spend pacer
+
+on:
+  workflow_call:
+    inputs:
+      owner: { type: string, required: false }
+      owner-type: { type: string, default: user }
+      daily-rate: { type: string, required: false }
+      monthly-budget: { type: string, required: false }
+      resume-headroom: { type: string, default: "0.50" }
+      repos: { type: string, default: all-private }
+      allow-list: { type: string, required: false }
+      include-dynamic: { type: boolean, default: false }
+      mode: { type: string, default: dry-run }
+      timezone: { type: string, default: UTC }
+      redact: { type: string, default: auto }
+      state-repo: { type: string, required: false }
+      state-issue-title: { type: string, default: Actions spend pacer }
+      trusted-authors: { type: string, required: false }
+      keepalive: { type: boolean, default: true }
+    secrets:
+      token:
+        required: true
+      state-token:
+        required: false
+      webhook-url:
+        required: false
+    outputs:
+      status: { value: "${{ jobs.pace.outputs.status }}" }
+      spend: { value: "${{ jobs.pace.outputs.spend }}" }
+      allowance: { value: "${{ jobs.pace.outputs.allowance }}" }
+
+jobs:
+  pace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      issues: write
+      actions: write
+    concurrency:
+      group: actions-spend-pacer
+      cancel-in-progress: false
+    outputs:
+      status: ${{ steps.pacer.outputs.status }}
+      spend: ${{ steps.pacer.outputs.spend }}
+      allowance: ${{ steps.pacer.outputs.allowance }}
+    steps:
+      - id: pacer
+        uses: cinderblock/actions-spend-pacer@v1
+        with:
+          token: ${{ secrets.token }}
+          owner: ${{ inputs.owner }}
+          owner-type: ${{ inputs.owner-type }}
+          daily-rate: ${{ inputs.daily-rate }}
+          monthly-budget: ${{ inputs.monthly-budget }}
+          resume-headroom: ${{ inputs.resume-headroom }}
+          repos: ${{ inputs.repos }}
+          allow-list: ${{ inputs.allow-list }}
+          include-dynamic: ${{ inputs.include-dynamic }}
+          mode: ${{ inputs.mode }}
+          timezone: ${{ inputs.timezone }}
+          redact: ${{ inputs.redact }}
+          state-repo: ${{ inputs.state-repo }}
+          state-token: ${{ secrets.state-token }}
+          state-issue-title: ${{ inputs.state-issue-title }}
+          trusted-authors: ${{ inputs.trusted-authors }}
+          webhook-url: ${{ secrets.webhook-url }}
+          keepalive: ${{ inputs.keepalive }}

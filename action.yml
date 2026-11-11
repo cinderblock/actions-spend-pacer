@@ -1,0 +1,84 @@
+name: Actions Spend Pacer
+description: Keep GitHub Actions spend on a running daily allowance by pausing and resuming workflows in your private repos.
+author: cinderblock
+branding:
+  icon: clock
+  color: orange
+
+inputs:
+  token:
+    description: >-
+      Fine-grained PAT. User permission "Plan: read" (billing usage) and repository permission
+      "Actions: read and write" on the repos to govern. For an org owner: org permission
+      "Administration: read" instead of Plan.
+    required: true
+  owner:
+    description: User or org whose spend is governed. Defaults to the owner of the repo running this.
+    required: false
+  owner-type:
+    description: "`user` or `org`."
+    default: user
+  daily-rate:
+    description: Allowance in USD per UTC day of the month (allowance = rate × day). Default 1 when monthly-budget is unset.
+    required: false
+  monthly-budget:
+    description: Alternative to daily-rate. USD per month, prorated by day.
+    required: false
+  resume-headroom:
+    description: Resume only once spend is at least this far (USD) under the allowance.
+    default: "0.50"
+  repos:
+    description: "`all-private` (every non-public, non-archived repo the token can see) or a newline/comma list of repo names."
+    default: all-private
+  allow-list:
+    description: "Never pause these. One per line: `repo` or `repo/workflow.yml`."
+    required: false
+  include-dynamic:
+    description: Also govern GitHub-managed `dynamic/` workflows (Dependabot, Copilot agent, code scanning).
+    default: "false"
+  mode:
+    description: "`dry-run` (report only) or `live` (actually pause and resume)."
+    default: dry-run
+  timezone:
+    description: IANA zone for times in reports, e.g. America/Los_Angeles. UTC is shown alongside.
+    default: UTC
+  redact:
+    description: "`auto` (redact when the running repo is public), `true` or `false`. Redaction replaces private repo and workflow names with opaque labels in logs, summaries and the status issue."
+    default: auto
+  github-token:
+    description: Token for the status issue (if state-repo is this repo) and keepalive. Needs issues:write and actions:write.
+    default: ${{ github.token }}
+  state-repo:
+    description: owner/repo holding the status issue. Defaults to the repo running this.
+    required: false
+  state-token:
+    description: Token for state-repo when it is not this repo (Issues read/write on it). Defaults to github-token.
+    required: false
+  state-issue-title:
+    description: Title for the status issue created on the first live run.
+    default: Actions spend pacer
+  trusted-authors:
+    description: Extra logins whose issues may hold state (owner and github-actions[bot] are always trusted).
+    required: false
+  webhook-url:
+    description: Optional URL that receives a JSON POST when workflows are paused or resumed. Pass it from a secret; it includes real repo names.
+    required: false
+  keepalive:
+    description: Re-enable this workflow each run so GitHub's 60-day inactivity rule never disables the schedule.
+    default: "true"
+
+outputs:
+  status:
+    description: "`over`, `under` or `holding`."
+  spend:
+    description: Month-to-date net Actions spend, USD.
+  allowance:
+    description: Allowance at this run, USD.
+  paused-count:
+    description: Workflows paused (or that would be, in dry-run).
+  resumed-count:
+    description: Workflows resumed (or that would be, in dry-run).
+
+runs:
+  using: node24
+  main: dist/index.js

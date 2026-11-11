@@ -1,0 +1,38 @@
+# cinderblock's own pacer. Runs the action from this commit (dogfooding master).
+name: Spend pacer
+
+on:
+  # Schedule stays off until approved. Uncomment to enable:
+  # schedule:
+  #   - cron: "17 */3 * * *" # every 3 hours, off the top of the hour
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: dry-run or live
+        type: choice
+        options: [dry-run, live]
+        default: dry-run
+
+permissions:
+  contents: read
+  issues: write
+  actions: write
+
+concurrency:
+  group: actions-spend-pacer
+  cancel-in-progress: false
+
+jobs:
+  pace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./
+        with:
+          token: ${{ secrets.PACER_TOKEN }}
+          mode: ${{ inputs.mode || 'dry-run' }}
+          daily-rate: "1.00"
+          resume-headroom: "0.50"
+          timezone: America/Los_Angeles
+          redact: auto

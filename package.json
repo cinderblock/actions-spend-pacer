@@ -1,0 +1,26 @@
+{
+  "name": "actions-spend-pacer",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Keep GitHub Actions spend on a running daily allowance by pausing and resuming workflows.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "actions-spend-pacer": "src/cli.ts"
+  },
+  "scripts": {
+    "build": "bun build src/main.ts --target=node --format=esm --outfile dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "check": "bun run typecheck && bun test && bun run build",
+    "dry-run": "bun src/cli.ts run"
+  },
+  "dependencies": {
+    "@actions/core": "^3.0.1"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.4",
+    "@types/node": "^26.6.6",
+    "typescript": "^7.0.2"
+  }
+}
