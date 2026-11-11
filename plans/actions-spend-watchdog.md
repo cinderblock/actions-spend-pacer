@@ -208,17 +208,38 @@ or (B) encrypted in the public issue with a key secret. Recommendation: A.
   runners". Neither settles it. Must be verified by observation (Open question 1).
 - **User endpoint docs** carry stale wording about Copilot-only applicability and the
   "enhanced billing platform"; in practice it returns all products for this account.
+- **Dry run 2026-11-10 7:26 PM PST (03:26Z Nov 11):** spend $16.53 vs $11 → over $5.53; would pause
+  34 workflows across 16 repos, including all 10 non-dynamic ops workflows, apitorrent CI/Release,
+  and 8 upptime cron workflows (uptime monitor, $0 spend). MTD crossed the allowance on Nov 10
+  (UTC): $12.99 vs $10.
+- `dist/index.js` is 0.76 MB, mostly `@actions/core`'s HTTP client. Acceptable.
+- Python `open(p,'w')` then a failing `write` (cp1252 can't encode `→`) **truncates the file**.
+  Use `encoding='utf-8'` or the Edit tool.
 - Inventory command (read-only):
   `gh repo list cinderblock --visibility private --limit 300 --json name,isArchived` then
   `gh api repos/cinderblock/<r>/actions/workflows`.
 
+## Implementation notes
+
+- Code: `src/` (allowance, plan/decide, state, store, billing, workflows, report, run, config,
+  main = action entry, cli = local entry). Tests in `test/`. `bun run check` = typecheck + test + build.
+- Local dry run: `bun src/cli.ts run --owner cinderblock --timezone America/Los_Angeles`
+  (add `--redact` to see what a public repo would show, `--json` for machine output).
+- `watchdog.yml` (cinderblock's caller) is committed with the **cron commented out** and
+  `mode: dry-run`; pushing it does not start a schedule.
+- The reusable workflow references `cinderblock/actions-spend-pacer@v1`, so it only works
+  once a `v1` tag exists. `watchdog.yml` uses `./` (checkout) to dogfood master instead.
+- Behaviour decided while testing: a pacer-paused workflow re-enabled by hand is forgotten;
+  if still over budget it is paused again on that same run (consistent, not "skip once").
+  Overrides are the supported way to keep something running.
+
 ## Plan / steps
 
 1. Plan doc + proposed name/layout → user yes. **Done.**
-2. **← current** Scaffold repo locally (TS, bun test, action.yml), allowance + plan logic with tests.
+2. Scaffold repo locally (TS, bun test, action.yml), allowance + plan logic with tests. **Done** (`9cd4e20`).
 3. Billing + workflow inventory + CLI dry run against `cinderblock` using the local gh token
-   (read-only). Show the output to the user.
-4. Stage: create public GitHub repo; create fine-grained PAT (user does this, steps one at a
+   (read-only). **Done; output shown to user, awaiting their review.**
+4. **← next, needs yes per item.** Stage: create public GitHub repo; create fine-grained PAT (user does this, steps one at a
    time); set secret; caller workflow in dry-run mode, schedule on. Each needs a yes.
 5. Observe scheduled dry runs; get yes for `mode: live`.
 6. Public polish: README (setup, token steps, lag/soft-cap honesty), license, CI, release tag,
@@ -230,8 +251,10 @@ or (B) encrypted in the public issue with a key secret. Recommendation: A.
 - [x] Read-only snapshot of MTD spend and private-repo workflow inventory
 - [x] Local repo initialised (`master`)
 - [x] Name + layout approved (MIT, all private, $0.50 headroom, override not allow-list)
-- [ ] Core logic + tests
-- [ ] Local dry run shown to user
+- [x] Core logic + tests (42 passing; typecheck, build clean), `9cd4e20`
+- [x] Local dry run shown to user (2026-11-10 7:26 PM PST (03:26Z Nov 11)): would pause 34 of 43
+      workflows; 9 dynamic skipped; resumes 2026-11-18 UTC at zero further spend
+- [ ] User reviews dry run and answers the state-location question
 - [ ] GitHub repo created (needs yes)
 - [ ] PAT + secret (needs yes)
 - [ ] Schedule enabled in dry-run (needs yes)
@@ -240,7 +263,10 @@ or (B) encrypted in the public issue with a key secret. Recommendation: A.
 
 ## Open questions for the user
 
-1. **Where state + detailed notifications live** given the public-repo privacy issue:
+1. **Spenders-only policy?** The dry run would pause $0 repos too (e.g. the upptime monitor).
+   An optional `pause-scope: spenders` (only repos with net spend this month) would target
+   runaways and leave quiet repos alone. User said "all, until we decide otherwise"; not built.
+2. **Where state + detailed notifications live** given the public-repo privacy issue:
    (A) issue in a private state repo (recommended), (B) encrypted state in the public issue,
    (C) accept private repo names being public.
 
