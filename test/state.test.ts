@@ -6,6 +6,7 @@ const s: State = {
   version: 1,
   paused: [{ repo: "app", workflowId: 1, path: ".github/workflows/ci.yml", name: "CI", pausedAt: "2026-11-11T00:00:00Z" }],
   overrides: [{ match: "ops/deploy.yml", until: "2026-11-12T00:00:00Z", reason: "sneaky --> end" }],
+  grants: [{ amount: 5, month: "2026-11", reason: "release week", at: "2026-11-11T00:00:00Z" }],
 };
 
 describe("state block", () => {
@@ -25,8 +26,13 @@ describe("state block", () => {
   });
 
   test("no block → empty state", () => {
-    expect(parseState("just an issue")).toEqual({ version: 1, paused: [], overrides: [] });
-    expect(parseState(null)).toEqual({ version: 1, paused: [], overrides: [] });
+    expect(parseState("just an issue")).toEqual({ version: 1, paused: [], overrides: [], grants: [] });
+    expect(parseState(null)).toEqual({ version: 1, paused: [], overrides: [], grants: [] });
+  });
+
+  test("state written before grants existed still loads", () => {
+    const old = stateBlock({ ...s, grants: undefined as never });
+    expect(parseState(old).grants).toEqual([]);
   });
 
   test("corrupt block fails closed", () => {
@@ -35,5 +41,7 @@ describe("state block", () => {
     expect(() => parseState(stateBlock({ ...s, version: 2 as 1 }))).toThrow(/version/);
     const bad = stateBlock(s).replace('"workflowId": 1', '"workflowId": "1"');
     expect(() => parseState(bad)).toThrow(/paused\[0\]/);
+    const badGrant = stateBlock(s).replace('"amount": 5', '"amount": -5');
+    expect(() => parseState(badGrant)).toThrow(/grants\[0\]/);
   });
 });

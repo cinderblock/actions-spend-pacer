@@ -1,6 +1,6 @@
-import { roundCents } from "./allowance.ts";
+import { activeGrants, grantTotal, roundCents } from "./allowance.ts";
 import { activeOverrides, matches } from "./match.ts";
-import type { Override, PausedEntry, State, Workflow } from "./types.ts";
+import type { Grant, Override, PausedEntry, State, Workflow } from "./types.ts";
 
 export type Status = "over" | "under" | "holding";
 
@@ -8,6 +8,7 @@ export interface DecideInput {
   now: Date;
   owner: string;
   spend: number;
+  /** Base allowance from the configured rate. Active grants in the state are added to it. */
   allowance: number;
   /** Resume only once spend <= allowance - headroom. */
   headroom: number;
@@ -47,6 +48,10 @@ export interface Decision {
   skipped: Skipped[];
   /** Overrides still in force after pruning. */
   overrides: Override[];
+  /** Grants still in force after pruning. */
+  grants: Grant[];
+  /** Base allowance + active grants: the line spend is compared against. */
+  effectiveAllowance: number;
 }
 
 export const key = (repo: string, id: number) => `${repo.toLowerCase()}#${id}`;
@@ -56,8 +61,10 @@ export function isDynamic(wf: Pick<Workflow, "path">): boolean {
 }
 
 export function decide(input: DecideInput): Decision {
-  const { now, owner, spend, allowance, headroom, workflows, failedRepos, state } = input;
+  const { now, owner, spend, headroom, workflows, failedRepos, state } = input;
   const overrides = activeOverrides(state.overrides, now);
+  const grants = activeGrants(state.grants, now);
+  const allowance = roundCents(input.allowance + grantTotal(grants));
   const byKey = new Map(workflows.map((w) => [key(w.repo, w.id), w]));
 
   const allowListed = (w: Workflow) => input.allowList.some((e) => matches(e, w, owner));
@@ -110,5 +117,5 @@ export function decide(input: DecideInput): Decision {
     else if (status === "over") toPause.push(wf);
   }
 
-  return { status, toPause, toResume, stillPaused, dropped, skipped, overrides };
+  return { status, toPause, toResume, stillPaused, dropped, skipped, overrides, grants, effectiveAllowance: allowance };
 }

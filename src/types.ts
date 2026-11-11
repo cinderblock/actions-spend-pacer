@@ -29,13 +29,30 @@ export interface Override {
   reason?: string;
 }
 
+/**
+ * Extra allowance granted by hand ("add $5 to this month"). Our own accounting: it raises
+ * the pacer's line, not GitHub's budget. Only counts in the UTC billing month it was granted.
+ */
+export interface Grant {
+  /** USD added to the allowance. */
+  amount: number;
+  /** UTC billing month it applies to, `YYYY-MM`. */
+  month: string;
+  /** Optional earlier expiry (ISO). Without it the grant lasts until the month ends. */
+  until?: string;
+  reason?: string;
+  /** When it was granted (ISO). */
+  at: string;
+}
+
 export interface State {
   version: 1;
   paused: PausedEntry[];
   overrides: Override[];
+  grants: Grant[];
 }
 
-export const emptyState = (): State => ({ version: 1, paused: [], overrides: [] });
+export const emptyState = (): State => ({ version: 1, paused: [], overrides: [], grants: [] });
 
 export interface AllowanceConfig {
   /** USD per UTC day of the month. Mutually exclusive with monthlyBudget. */

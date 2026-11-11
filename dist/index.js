@@ -18041,10 +18041,16 @@ function allowanceAt(now, cfg) {
 function roundCents(x) {
   return Math.round(x * 1e4) / 1e4;
 }
-function catchUpDay(a, spend, headroom) {
+var billingMonth = (d) => d.toISOString().slice(0, 7);
+function activeGrants(grants, now) {
+  const month = billingMonth(now);
+  return grants.filter((g) => g.month === month && (!g.until || Date.parse(g.until) > now.getTime()));
+}
+var grantTotal = (grants) => roundCents(grants.reduce((s, g) => s + g.amount, 0));
+function catchUpDay(a, spend, headroom, granted = 0) {
   if (a.perDay <= 0)
     return;
-  const day = Math.ceil(roundCents((spend + headroom) / a.perDay));
+  const day = Math.ceil(roundCents((spend + headroom - granted) / a.perDay));
   return day <= a.daysInMonth ? Math.max(day, a.day) : undefined;
 }
 
@@ -18198,9 +18204,11 @@ function formatTime(d, timeZone) {
 }
 function headline(r) {
   const { spend, allowance: a, decision } = r;
-  const diff = spend.total - a.amount;
+  const diff = spend.total - decision.effectiveAllowance;
+  const granted = grantTotal(decision.grants);
+  const line = granted ? `**${usd(decision.effectiveAllowance)}** (${usd(a.amount)} for UTC day ${a.day} of ${a.daysInMonth} × ${usd(a.perDay)}/day, + ${usd(granted)} granted)` : `**${usd(a.amount)}** (UTC day ${a.day} of ${a.daysInMonth} × ${usd(a.perDay)}/day)`;
   const where = decision.status === "over" ? `**over by ${usd(diff)}**` : decision.status === "under" ? `under by ${usd(-diff)}` : `within the resume headroom (${usd(-diff)} under)`;
-  return `Month-to-date Actions spend **${usd(spend.total)}** vs allowance **${usd(a.amount)}** (UTC day ${a.day} of ${a.daysInMonth} × ${usd(a.perDay)}/day): ${where}.`;
+  return `Month-to-date Actions spend **${usd(spend.total)}** vs allowance ${line}: ${where}.`;
 }
 function renderReport(r) {
   const n = namer(r.owner, r.redact);
@@ -18238,7 +18246,7 @@ function renderReport(r) {
   }
   const nowPaused = live ? d.stillPaused.length + paused.length : d.stillPaused.length + d.toPause.length;
   if (nowPaused > 0 || d.status !== "under") {
-    const day = catchUpDay(a, r.spend.total, r.headroom);
+    const day = catchUpDay(a, r.spend.total, r.headroom, grantTotal(d.grants));
     const when = day === undefined ? "at the start of next month (UTC)" : `on ${a.year}-${String(a.month).padStart(2, "0")}-${String(day).padStart(2, "0")} (UTC) if nothing more is spent`;
     if (nowPaused > 0)
       out.push(`${nowPaused} workflow(s) ${live ? "are" : "would be"} paused. They resume ${when}.`, "");
@@ -18247,6 +18255,12 @@ function renderReport(r) {
     out.push("### Forgotten (no longer managed by the pacer)", "");
     for (const x of d.dropped)
       out.push(`- ${n.wf(x.entry)}: ${x.reason}`);
+    out.push("");
+  }
+  if (d.grants.length) {
+    out.push("### Grants this month", "");
+    for (const g of d.grants)
+      out.push(`- ${usd(g.amount)}${g.until ? ` until ${formatTime(new Date(g.until), r.timezone)}` : " for the rest of the month"}${g.reason && !r.redact ? `: ${g.reason}` : ""}`);
     out.push("");
   }
   if (d.overrides.length) {
@@ -18353,8 +18367,10 @@ function isDynamic(wf) {
   return wf.path.startsWith("dynamic/");
 }
 function decide(input) {
-  const { now, owner, spend, allowance, headroom, workflows, failedRepos, state } = input;
+  const { now, owner, spend, headroom, workflows, failedRepos, state } = input;
   const overrides = activeOverrides(state.overrides, now);
+  const grants = activeGrants(state.grants, now);
+  const allowance = roundCents(input.allowance + grantTotal(grants));
   const byKey = new Map(workflows.map((w) => [key(w.repo, w.id), w]));
   const allowListed = (w) => input.allowList.some((e) => matches(e, w, owner));
   const overridden = (w) => overrides.some((o) => matches(o.match, w, owner));
@@ -18398,7 +18414,7 @@ function decide(input) {
     else if (status === "over")
       toPause.push(wf);
   }
-  return { status, toPause, toResume, stillPaused, dropped, skipped, overrides };
+  return { status, toPause, toResume, stillPaused, dropped, skipped, overrides, grants, effectiveAllowance: allowance };
 }
 
 // src/workflows.ts
@@ -18472,7 +18488,7 @@ async function run(cfg, deps) {
     tokenExpiration: gh.tokenExpiration,
     stateLocation: store.describe()
   });
-  const base = { decision, spend: spend.total, allowance: a.amount };
+  const base = { decision, spend: spend.total, allowance: decision.effectiveAllowance };
   if (cfg.mode !== "live")
     return { ...base, report: reportFor(), changed: false };
   const outcome = await apply(cfg, deps, state, decision, reportFor);
@@ -18495,8 +18511,8 @@ async function apply(cfg, deps, prev, d, reportFor) {
   const intents = d.toPause.map((w) => ({ repo: w.repo, workflowId: w.id, path: w.path, name: w.name, pausedAt: now.toISOString() }));
   for (const e of intents)
     paused.set(key(e.repo, e.workflowId), e);
-  const snapshot = () => ({ version: 1, paused: [...paused.values()], overrides: d.overrides });
-  const stateChanged = intents.length > 0 || d.dropped.length > 0 || d.overrides.length !== prev.overrides.length || d.toResume.length > 0;
+  const snapshot = () => ({ version: 1, paused: [...paused.values()], overrides: d.overrides, grants: d.grants });
+  const stateChanged = intents.length > 0 || d.dropped.length > 0 || d.toResume.length > 0 || d.overrides.length !== prev.overrides.length || d.grants.length !== prev.grants.length;
   if (stateChanged)
     await store.save(snapshot(), reportFor());
   for (const w of d.toPause) {
@@ -18543,7 +18559,7 @@ async function postWebhook(cfg, deps, o, base) {
 }
 
 // src/types.ts
-var emptyState = () => ({ version: 1, paused: [], overrides: [] });
+var emptyState = () => ({ version: 1, paused: [], overrides: [], grants: [] });
 
 // src/state.ts
 var STATE_MARKER = "actions-spend-pacer:state";
@@ -18574,10 +18590,13 @@ function validateState(raw) {
     fail(`unsupported version ${JSON.stringify(o.version)}`);
   const paused = o.paused ?? [];
   const overrides = o.overrides ?? [];
+  const grants = o.grants ?? [];
   if (!Array.isArray(paused))
     fail("paused is not an array");
   if (!Array.isArray(overrides))
     fail("overrides is not an array");
+  if (!Array.isArray(grants))
+    fail("grants is not an array");
   const str = (v) => typeof v === "string" && v.length > 0;
   paused.forEach((p, i) => {
     const e = p;
@@ -18589,7 +18608,12 @@ function validateState(raw) {
     if (!e || !str(e.match) || !str(e.until) || Number.isNaN(Date.parse(e.until)))
       fail(`overrides[${i}] needs match and a valid until`);
   });
-  return { version: 1, paused, overrides };
+  grants.forEach((p, i) => {
+    const g = p;
+    if (!g || typeof g.amount !== "number" || !Number.isFinite(g.amount) || g.amount < 0 || !/^\d{4}-\d{2}$/.test(g.month ?? "") || g.until !== undefined && Number.isNaN(Date.parse(g.until)))
+      fail(`grants[${i}] needs a non-negative amount, a YYYY-MM month and a valid until`);
+  });
+  return { version: 1, paused, overrides, grants };
 }
 function stateBlock(state) {
   const json = JSON.stringify(state, null, 2).replace(/-->/g, "--\\u003e");

@@ -27,7 +27,7 @@ const base = (over: Partial<DecideInput>): DecideInput => ({
   headroom: 0.5,
   workflows: [],
   failedRepos: new Set(),
-  state: { version: 1, paused: [], overrides: [] },
+  state: { version: 1, paused: [], overrides: [], grants: [] },
   allowList: [],
   includeDynamic: false,
   ...over,
@@ -70,14 +70,14 @@ describe("decide: pausing", () => {
   test("an active override protects a workflow, an expired one does not", () => {
     const live = { match: "ops/deploy.yml", until: "2026-11-11T05:00:00Z" };
     const dead = { match: "app", until: "2026-11-11T02:00:00Z" };
-    const d = decide(base({ spend: 20, workflows: [ci, deploy], state: { version: 1, paused: [], overrides: [live, dead] } }));
+    const d = decide(base({ spend: 20, workflows: [ci, deploy], state: { version: 1, paused: [], overrides: [live, dead], grants: [] } }));
     expect(d.toPause).toEqual([ci]);
     expect(d.overrides).toEqual([live]);
   });
 
   test("already-paused workflows are not paused twice", () => {
     const pci = { ...ci, state: "disabled_manually" };
-    const d = decide(base({ spend: 20, workflows: [pci], state: { version: 1, paused: [paused(ci)], overrides: [] } }));
+    const d = decide(base({ spend: 20, workflows: [pci], state: { version: 1, paused: [paused(ci)], overrides: [], grants: [] } }));
     expect(d.toPause).toEqual([]);
     expect(d.stillPaused).toHaveLength(1);
   });
@@ -86,7 +86,7 @@ describe("decide: pausing", () => {
 describe("decide: resuming and bookkeeping", () => {
   const ci = wf("app", 1, "ci.yml", "disabled_manually");
   const mine = wf("app", 9, "manual.yml", "disabled_manually"); // user disabled by hand
-  const state = { version: 1 as const, paused: [paused(ci)], overrides: [] };
+  const state = { version: 1 as const, paused: [paused(ci)], overrides: [], grants: [] };
 
   test("under (past headroom): resumes only what it paused", () => {
     const d = decide(base({ spend: 10.5, workflows: [ci, mine], state }));
@@ -134,6 +134,36 @@ describe("decide: resuming and bookkeeping", () => {
 
   test("allow-listed after being paused → resumed", () => {
     const d = decide(base({ spend: 20, workflows: [ci], state, allowList: ["app"] }));
+    expect(d.toResume).toHaveLength(1);
+  });
+});
+
+describe("decide: grants", () => {
+  const ci = wf("app", 1, "ci.yml");
+  const g = (amount: number, month = "2026-11", until?: string) => ({ amount, month, until, at: "2026-11-11T00:00:00Z" });
+  const withGrants = (grants: ReturnType<typeof g>[]) => ({ version: 1 as const, paused: [], overrides: [], grants });
+
+  test("a grant raises the line for this month", () => {
+    const d = decide(base({ spend: 16.53, workflows: [ci], state: withGrants([g(5), g(1)]) }));
+    expect(d.effectiveAllowance).toBe(17);
+    expect(d.status).toBe("holding"); // 16.53 is under 17 but inside the $0.50 headroom
+    expect(d.toPause).toEqual([]);
+  });
+
+  test("last month's and expired grants don't count, and are pruned", () => {
+    const d = decide(
+      base({ spend: 16.53, workflows: [ci], state: withGrants([g(50, "2026-10"), g(50, "2026-11", "2026-11-11T02:00:00Z")]) }),
+    );
+    expect(d.effectiveAllowance).toBe(11);
+    expect(d.status).toBe("over");
+    expect(d.grants).toEqual([]);
+  });
+
+  test("a grant can resume paused workflows", () => {
+    const pci = { ...ci, state: "disabled_manually" };
+    const s = { ...withGrants([g(10)]), paused: [paused(ci)] };
+    const d = decide(base({ spend: 16.53, workflows: [pci], state: s }));
+    expect(d.status).toBe("under");
     expect(d.toResume).toHaveLength(1);
   });
 });

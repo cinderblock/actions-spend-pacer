@@ -46,6 +46,7 @@ describe("catchUpDay", () => {
   });
   test("already caught up → today", () => expect(catchUpDay(a, 3, 0.5)).toBe(11));
   test("not this month → undefined", () => expect(catchUpDay(a, 45, 0)).toBeUndefined());
+  test("grants bring catch-up forward", () => expect(catchUpDay(a, 16.53, 0.5, 5)).toBe(13));
 });
 
 describe("summarizeUsage", () => {

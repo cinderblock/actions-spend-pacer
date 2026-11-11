@@ -81,7 +81,7 @@ export async function run(cfg: Config, deps: Deps): Promise<RunResult> {
       stateLocation: store.describe(),
     });
 
-  const base = { decision, spend: spend.total, allowance: a.amount };
+  const base = { decision, spend: spend.total, allowance: decision.effectiveAllowance };
   if (cfg.mode !== "live") return { ...base, report: reportFor(), changed: false };
 
   const outcome = await apply(cfg, deps, state, decision, reportFor);
@@ -115,10 +115,14 @@ async function apply(
     (w): PausedEntry => ({ repo: w.repo, workflowId: w.id, path: w.path, name: w.name, pausedAt: now.toISOString() }),
   );
   for (const e of intents) paused.set(key(e.repo, e.workflowId), e);
-  const snapshot = (): State => ({ version: 1, paused: [...paused.values()], overrides: d.overrides });
+  const snapshot = (): State => ({ version: 1, paused: [...paused.values()], overrides: d.overrides, grants: d.grants });
 
   const stateChanged =
-    intents.length > 0 || d.dropped.length > 0 || d.overrides.length !== prev.overrides.length || d.toResume.length > 0;
+    intents.length > 0 ||
+    d.dropped.length > 0 ||
+    d.toResume.length > 0 ||
+    d.overrides.length !== prev.overrides.length ||
+    d.grants.length !== prev.grants.length;
   if (stateChanged) await store.save(snapshot(), reportFor()); // fails → nothing disabled
 
   for (const w of d.toPause) {

@@ -135,7 +135,12 @@ describe("run", () => {
       broken: [] as FakeWf[],
     };
     const { gh } = fakeGitHub({ spend: 20, repos, failToggle: [7] });
-    const state: State = { version: 1, paused: [], overrides: [{ match: "secret-project/x.yml", until: "2026-12-01T00:00:00Z", reason: "secret reason" }] };
+    const state: State = {
+      version: 1,
+      paused: [],
+      overrides: [{ match: "secret-project/x.yml", until: "2026-12-01T00:00:00Z", reason: "secret reason" }],
+      grants: [{ amount: 1, month: "2026-11", reason: "secret grant", at: "2026-11-11T00:00:00Z" }],
+    };
     const r = await run(cfg({ redact: true }), { gh, store: new MemoryStore(state), now, log });
     expect(r.report).not.toMatch(/secret|launch|Launch/i);
     expect(r.report).toContain(redactRepo("me", "secret-project"));

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { type Allowance, catchUpDay } from "./allowance.ts";
+import { type Allowance, catchUpDay, grantTotal } from "./allowance.ts";
 import type { Spend } from "./billing.ts";
 import type { Decision } from "./plan.ts";
 import type { Mode, PausedEntry, Workflow } from "./types.ts";
@@ -64,14 +64,18 @@ export function formatTime(d: Date, timeZone: string): string {
 
 export function headline(r: Pick<ReportInput, "spend" | "allowance" | "decision">): string {
   const { spend, allowance: a, decision } = r;
-  const diff = spend.total - a.amount;
+  const diff = spend.total - decision.effectiveAllowance;
+  const granted = grantTotal(decision.grants);
+  const line = granted
+    ? `**${usd(decision.effectiveAllowance)}** (${usd(a.amount)} for UTC day ${a.day} of ${a.daysInMonth} × ${usd(a.perDay)}/day, + ${usd(granted)} granted)`
+    : `**${usd(a.amount)}** (UTC day ${a.day} of ${a.daysInMonth} × ${usd(a.perDay)}/day)`;
   const where =
     decision.status === "over"
       ? `**over by ${usd(diff)}**`
       : decision.status === "under"
         ? `under by ${usd(-diff)}`
         : `within the resume headroom (${usd(-diff)} under)`;
-  return `Month-to-date Actions spend **${usd(spend.total)}** vs allowance **${usd(a.amount)}** (UTC day ${a.day} of ${a.daysInMonth} × ${usd(a.perDay)}/day): ${where}.`;
+  return `Month-to-date Actions spend **${usd(spend.total)}** vs allowance ${line}: ${where}.`;
 }
 
 export function renderReport(r: ReportInput): string {
@@ -110,7 +114,7 @@ export function renderReport(r: ReportInput): string {
 
   const nowPaused = live ? d.stillPaused.length + paused.length : d.stillPaused.length + d.toPause.length;
   if (nowPaused > 0 || d.status !== "under") {
-    const day = catchUpDay(a, r.spend.total, r.headroom);
+    const day = catchUpDay(a, r.spend.total, r.headroom, grantTotal(d.grants));
     const when =
       day === undefined
         ? "at the start of next month (UTC)"
@@ -121,6 +125,14 @@ export function renderReport(r: ReportInput): string {
   if (d.dropped.length) {
     out.push("### Forgotten (no longer managed by the pacer)", "");
     for (const x of d.dropped) out.push(`- ${n.wf(x.entry)}: ${x.reason}`);
+    out.push("");
+  }
+  if (d.grants.length) {
+    out.push("### Grants this month", "");
+    for (const g of d.grants)
+      out.push(
+        `- ${usd(g.amount)}${g.until ? ` until ${formatTime(new Date(g.until), r.timezone)}` : " for the rest of the month"}${g.reason && !r.redact ? `: ${g.reason}` : ""}`,
+      );
     out.push("");
   }
   if (d.overrides.length) {

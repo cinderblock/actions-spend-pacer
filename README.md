@@ -115,6 +115,22 @@ bunx github:cinderblock/actions-spend-pacer override ops/deploy.yml --for 4h --r
 `--now` re-enables it at once. Otherwise the next scheduled run does. When the override
 expires, the workflow is governed again.
 
+### Grants: extra allowance for this month
+
+To give the whole account more room for a while (a release week, say), grant extra
+allowance. It's the pacer's own accounting: it raises the pacer's line, not your GitHub
+budget, so the hard stop still applies.
+
+```sh
+bunx github:cinderblock/actions-spend-pacer grant 5 --reason "release week" \
+  --state-repo you/spend-pacer --owner you            # add --for 3d to expire sooner
+```
+
+A grant counts only in the UTC billing month it was made, and any `--for` expiry ends it
+sooner. When it ends, the line drops back, and if spend is then over, the next run pauses
+again. Grants are bounded, so unlike an override they keep a runaway in check. To preview
+one without recording it, run `run --grant 5` (dry run).
+
 ## Inputs
 
 See [action.yml](action.yml). The main ones:

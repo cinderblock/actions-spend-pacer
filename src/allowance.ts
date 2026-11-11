@@ -1,4 +1,4 @@
-import type { AllowanceConfig } from "./types.ts";
+import type { AllowanceConfig, Grant } from "./types.ts";
 
 export interface Allowance {
   year: number;
@@ -44,12 +44,22 @@ export function roundCents(x: number): number {
   return Math.round(x * 10000) / 10000;
 }
 
+export const billingMonth = (d: Date) => d.toISOString().slice(0, 7);
+
+/** Grants that count right now: granted for this UTC month and not expired. */
+export function activeGrants(grants: Grant[], now: Date): Grant[] {
+  const month = billingMonth(now);
+  return grants.filter((g) => g.month === month && (!g.until || Date.parse(g.until) > now.getTime()));
+}
+
+export const grantTotal = (grants: Grant[]) => roundCents(grants.reduce((s, g) => s + g.amount, 0));
+
 /**
- * First UTC day on which the allowance reaches `spend + headroom`, assuming no further
- * spend. Returns undefined if that is not in the current month (the month reset resumes).
+ * First UTC day on which the allowance (plus `granted`, assumed to last the month) reaches
+ * `spend + headroom`, with no further spend. Undefined if not this month (the reset resumes).
  */
-export function catchUpDay(a: Allowance, spend: number, headroom: number): number | undefined {
+export function catchUpDay(a: Allowance, spend: number, headroom: number, granted = 0): number | undefined {
   if (a.perDay <= 0) return undefined;
-  const day = Math.ceil(roundCents((spend + headroom) / a.perDay));
+  const day = Math.ceil(roundCents((spend + headroom - granted) / a.perDay));
   return day <= a.daysInMonth ? Math.max(day, a.day) : undefined;
 }

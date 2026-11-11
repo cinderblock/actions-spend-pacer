@@ -2,6 +2,8 @@
 /**
  * Local CLI. Dry run (the default) is read-only:
  *   bun src/cli.ts run --owner you --timezone America/Los_Angeles
+ * Grant extra allowance for this month (our own accounting; writes the state issue):
+ *   bun src/cli.ts grant 5 --reason "release week" [--for 3d] --state-repo you/pacer --owner you
  * Manual override (writes the state issue; pacer applies it on its next run, or now with --now):
  *   bun src/cli.ts override ops/deploy.yml --for 4h --reason "hotfix" --state-repo you/pacer --owner you
  */
@@ -9,6 +11,7 @@ import { execFileSync } from "node:child_process";
 import { parseArgs } from "node:util";
 import { parseConfig } from "./config.ts";
 import { GitHub } from "./github.ts";
+import { billingMonth } from "./allowance.ts";
 import { matches, parseDuration } from "./match.ts";
 import { run } from "./run.ts";
 import { IssueStore, MemoryStore, type StateStore } from "./store.ts";
@@ -33,6 +36,7 @@ const { positionals, values } = parseArgs({
     yes: { type: "boolean" },
     json: { type: "boolean" },
     for: { type: "string" },
+    grant: { type: "string" },
     reason: { type: "string" },
     now: { type: "boolean" },
     help: { type: "boolean", short: "h" },
@@ -42,7 +46,9 @@ const { positionals, values } = parseArgs({
 const usage = `actions-spend-pacer run [--owner o] [--daily-rate 1 | --monthly-budget 30] [--resume-headroom 0.5]
                         [--repos a,b | all-private] [--allow-list repo/ci.yml ...] [--include-dynamic]
                         [--timezone America/Los_Angeles] [--redact] [--state-repo o/r] [--json]
+                        [--grant 5]      (dry-run what-if: pretend $5 more is granted)
                         [--live --yes]   (live needs --state-repo)
+actions-spend-pacer grant <usd> [--for 3d] [--reason text] --state-repo o/r --owner o
 actions-spend-pacer override <repo[/workflow]> --for 4h [--reason text] [--now] --state-repo o/r --owner o
 Token: GITHUB_TOKEN, GH_TOKEN, or \`gh auth token\`.`;
 
@@ -80,6 +86,18 @@ async function main() {
       },
       { owner },
     );
+    if (values.grant !== undefined) {
+      if (values.live) throw new Error("--grant is a dry-run what-if; use the grant command to record one.");
+      const amount = Number(values.grant);
+      if (!Number.isFinite(amount) || amount < 0) throw new Error(`--grant needs a USD amount, got "${values.grant}".`);
+      const load = store.load.bind(store);
+      const now = new Date();
+      store.load = async () => {
+        const s = await load();
+        s.grants.push({ amount, month: billingMonth(now), reason: "what-if (--grant)", at: now.toISOString() });
+        return s;
+      };
+    }
     const result = await run(cfg, { gh, store, now: new Date(), log: (m) => console.error(`· ${m}`) });
     if (values.json) {
       const { decision: d } = result;
@@ -110,6 +128,21 @@ async function main() {
       state.paused = state.paused.filter((e) => !hit.includes(e));
     }
     const note = `Override \`${match}\` until ${until}${values.reason ? `: ${values.reason}` : ""}.${resumedNow.length ? ` Re-enabled now: ${resumedNow.length}.` : ""}`;
+    await store.save(state, `${note}\n\nThe next scheduled run rewrites this status.`);
+    await store.notify(note);
+    console.log(`${note}\nState: ${store.describe()}`);
+    return;
+  }
+
+  if (cmd === "grant") {
+    const amount = Number((rest[0] ?? "").replace(/^\$/, ""));
+    if (!rest[0] || !Number.isFinite(amount) || amount <= 0 || !stateRepo)
+      throw new Error(`grant needs a positive USD amount and --state-repo.\n${usage}`);
+    const now = new Date();
+    const until = values.for ? new Date(now.getTime() + parseDuration(values.for)).toISOString() : undefined;
+    const state = await store.load();
+    state.grants.push({ amount, month: billingMonth(now), until, reason: values.reason, at: now.toISOString() });
+    const note = `Granted $${amount.toFixed(2)} extra allowance for ${billingMonth(now)} (UTC)${until ? ` until ${until}` : ""}${values.reason ? `: ${values.reason}` : ""}. The next run applies it.`;
     await store.save(state, `${note}\n\nThe next scheduled run rewrites this status.`);
     await store.notify(note);
     console.log(`${note}\nState: ${store.describe()}`);

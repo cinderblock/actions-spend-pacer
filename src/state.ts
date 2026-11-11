@@ -1,4 +1,4 @@
-import type { Override, PausedEntry, State } from "./types.ts";
+import type { Grant, Override, PausedEntry, State } from "./types.ts";
 import { emptyState } from "./types.ts";
 
 export const STATE_MARKER = "actions-spend-pacer:state";
@@ -32,8 +32,10 @@ export function validateState(raw: unknown): State {
   if (o.version !== 1) fail(`unsupported version ${JSON.stringify(o.version)}`);
   const paused = o.paused ?? [];
   const overrides = o.overrides ?? [];
+  const grants = o.grants ?? [];
   if (!Array.isArray(paused)) fail("paused is not an array");
   if (!Array.isArray(overrides)) fail("overrides is not an array");
+  if (!Array.isArray(grants)) fail("grants is not an array");
   const str = (v: unknown) => typeof v === "string" && v.length > 0;
   (paused as unknown[]).forEach((p, i) => {
     const e = p as Partial<PausedEntry>;
@@ -45,7 +47,19 @@ export function validateState(raw: unknown): State {
     if (!e || !str(e.match) || !str(e.until) || Number.isNaN(Date.parse(e.until!)))
       fail(`overrides[${i}] needs match and a valid until`);
   });
-  return { version: 1, paused: paused as PausedEntry[], overrides: overrides as Override[] };
+  (grants as unknown[]).forEach((p, i) => {
+    const g = p as Partial<Grant>;
+    if (
+      !g ||
+      typeof g.amount !== "number" ||
+      !Number.isFinite(g.amount) ||
+      g.amount < 0 ||
+      !/^\d{4}-\d{2}$/.test(g.month ?? "") ||
+      (g.until !== undefined && Number.isNaN(Date.parse(g.until)))
+    )
+      fail(`grants[${i}] needs a non-negative amount, a YYYY-MM month and a valid until`);
+  });
+  return { version: 1, paused: paused as PausedEntry[], overrides: overrides as Override[], grants: grants as Grant[] };
 }
 
 /** Serialise state into a hidden HTML comment. `-->` can never appear inside it. */

@@ -153,6 +153,15 @@ the next run regardless of spend. CLI: `actions-spend-pacer override ops/deploy.
 --reason "..." --now` (`--now` re-enables immediately). Agents only use it on the user's
 explicit instruction. Expired overrides are pruned.
 
+### Grants: temporary extra allowance (user asked 2026-11-11)
+
+`grants` in the state: `{ amount, month: "YYYY-MM", until?, reason?, at }`. Effective allowance =
+rate × day + active grants. A grant only counts in the UTC billing month it was made, optionally
+ending sooner (`--for 3d`), and is pruned after. This is the pacer's own accounting; GitHub's budget
+and hard stop are unchanged. CLI: `grant 5 --reason ... [--for 3d]`; `run --grant 5` previews one
+in a dry run without recording it. State written before grants existed still loads (`grants`
+defaults to `[]`). Bounded, unlike an override, so it keeps runaway protection.
+
 ### Write ordering (crash safety)
 
 Pause: record intent in state → persist → disable. A recorded-but-still-active workflow is
@@ -212,6 +221,8 @@ or (B) encrypted in the public issue with a key secret. Recommendation: A.
   34 workflows across 16 repos, including all 10 non-dynamic ops workflows, apitorrent CI/Release,
   and 8 upptime cron workflows (uptime monitor, $0 spend). MTD crossed the allowance on Nov 10
   (UTC): $12.99 vs $10.
+- **2026-11-11 3:55 PM PST (23:55Z):** spend is **$19.75**, so the $20 hard stop is about to trip.
+  Dry run now lists 32 workflows to pause (was 34). A $5 grant would make the line $16 (still over $3.75).
 - `dist/index.js` is 0.76 MB, mostly `@actions/core`'s HTTP client. Acceptable.
 - Python `open(p,'w')` then a failing `write` (cp1252 can't encode `→`) **truncates the file**.
   Use `encoding='utf-8'` or the Edit tool.
@@ -254,6 +265,7 @@ or (B) encrypted in the public issue with a key secret. Recommendation: A.
 - [x] Core logic + tests (42 passing; typecheck, build clean), `9cd4e20`
 - [x] Local dry run shown to user (2026-11-10 7:26 PM PST (03:26Z Nov 11)): would pause 34 of 43
       workflows; 9 dynamic skipped; resumes 2026-11-18 UTC at zero further spend
+- [x] Grants (extra allowance, own accounting), 47 tests passing
 - [ ] User reviews dry run and answers the state-location question
 - [ ] GitHub repo created (needs yes)
 - [ ] PAT + secret (needs yes)
