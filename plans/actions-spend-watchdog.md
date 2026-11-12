@@ -5,7 +5,8 @@
 Keep GitHub Actions spending on a **running allowance** (default $1 × day of month) by
 disabling workflows in governed private repos when month-to-date net spend is over the
 allowance, and re-enabling **only the workflows it disabled itself** once the allowance
-catches up. It sits in front of the account's $20/month "stop usage" budget, which halts
+catches up. It sits in front of the account's "stop usage" budget (raised from $20 to $35
+for November 2026 by the user), which halts
 *every* hosted job (ops deploys included) until the month resets.
 
 Built from day one as a **public, reusable** action + reusable workflow that anyone can drop
@@ -53,6 +54,18 @@ Background: the ops thread "Boot-check app images before Renovate deploys them"
   on the user's explicit instruction for rare cases (time-limited, see design).
 - **Governed set: all private repos**, until decided otherwise.
 - **Resume headroom: $0.50.**
+
+## Answers recorded (2026-11-11 ~7:15 PM PST (03:15Z Nov 12))
+
+- **GitHub budget raised to $35 for November** by the user. Hard stop no longer imminent.
+- **Keep pacing tight**: stay at $1/day so the user can feel how it works. Pauses lasting a
+  day are acceptable, since an agent can apply an override on request.
+- **Grant "a little extra"** so jobs aren't expected to be paused at go-live. Size it at
+  go-live: whole dollars just covering spend minus allowance, plus about $1. At 2026-11-11
+  7:16 PM PST (03:16Z Nov 12) that is $9 ($20.19 spend vs $12 allowance → $21 line).
+  Recorded only once the state store exists (it lives in the state issue).
+- **Public repo creation approved** (`cinderblock/actions-spend-pacer`). Before the first push,
+  one private repo name with its spend was scrubbed from the unpublished local history.
 
 ## Design (approved; details may evolve)
 
@@ -249,8 +262,8 @@ or (B) encrypted in the public issue with a key secret. Recommendation: A.
 1. Plan doc + proposed name/layout → user yes. **Done.**
 2. Scaffold repo locally (TS, bun test, action.yml), allowance + plan logic with tests. **Done** (`9cd4e20`).
 3. Billing + workflow inventory + CLI dry run against `cinderblock` using the local gh token
-   (read-only). **Done; output shown to user, awaiting their review.**
-4. **← next, needs yes per item.** Stage: create public GitHub repo; create fine-grained PAT (user does this, steps one at a
+   (read-only). **Done; shown to user.**
+4. **← current.** Public GitHub repo created and pushed (approved). Next, each needing a yes: create fine-grained PAT (user does this, steps one at a
    time); set secret; caller workflow in dry-run mode, schedule on. Each needs a yes.
 5. Observe scheduled dry runs; get yes for `mode: live`.
 6. Public polish: README (setup, token steps, lag/soft-cap honesty), license, CI, release tag,
@@ -267,8 +280,10 @@ or (B) encrypted in the public issue with a key secret. Recommendation: A.
       workflows; 9 dynamic skipped; resumes 2026-11-18 UTC at zero further spend
 - [x] Grants (extra allowance, own accounting), 47 tests passing
 - [ ] User reviews dry run and answers the state-location question
-- [ ] GitHub repo created (needs yes)
+- [x] GitHub repo created and pushed (approved 2026-11-11)
+- [ ] State location chosen (open question 2)
 - [ ] PAT + secret (needs yes)
+- [ ] Grant at go-live (approved; ~$9 at current numbers)
 - [ ] Schedule enabled in dry-run (needs yes)
 - [ ] Live mode (needs yes)
 - [ ] Public release (needs yes)
@@ -279,8 +294,15 @@ or (B) encrypted in the public issue with a key secret. Recommendation: A.
    An optional `pause-scope: spenders` (only repos with net spend this month) would target
    runaways and leave quiet repos alone. User said "all, until we decide otherwise"; not built.
 2. **Where state + detailed notifications live** given the public-repo privacy issue:
-   (A) issue in a private state repo (recommended), (B) encrypted state in the public issue,
-   (C) accept private repo names being public.
+   Options laid out to the user 2026-11-11:
+   (A) issue in a new private repo, e.g. `actions-spend-pacer-state`, Actions off there
+   (recommended; already supported via `state-repo`/`state-token`; PAT adds Issues: read/write on it);
+   (B) pseudonymous state in the public issue: HMAC-keyed repo labels + workflow IDs, resolved
+   against the live inventory (needs building; names only visible via the local CLI);
+   (C) encrypted state blob in the public issue, key in a secret (needs building);
+   (D) Actions variable on the pacer repo (not public, 48 KB; PAT needs Variables: write;
+   no notifications by itself; needs building);
+   (E) accept private repo names being public (not recommended).
 
 ## Things not to do
 
