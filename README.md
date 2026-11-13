@@ -95,12 +95,24 @@ shows the current status and holds, in a hidden JSON block, the list of workflow
 paused. That list is how it knows what it may re-enable. Every pause or resume adds a comment,
 so you get a notification.
 
-- Only issues opened by you or `github-actions[bot]` are trusted, so a stranger can't plant fake state.
+- Only issues opened by you (or by `github-actions[bot]`, when the issue is in the pacer repo
+  itself) are trusted, so a stranger can't plant fake state.
 - If the block is ever unreadable, the pacer **fails closed**: it changes nothing and fails the run.
 - It records a pause *before* disabling and forgets it *after* re-enabling, so a crash can't
   leave a pause it doesn't know about.
 - If you re-enable a paused workflow by hand, the pacer forgets it. Should the account still be
   over the allowance, the next run pauses it again. To keep something running, use an override.
+
+### Keeping the record private
+
+In a public pacer repo, the status issue is redacted like everything else. To see real names
+there, keep the issue in a private repo you own instead: set `state-repo: you/some-private-repo`
+and pass a `state-token` with **Issues: read and write** on just that repo. The pacer then
+writes real names into that issue and its comments, while the public job summary stays
+redacted (`state-redact: auto`).
+
+Before choosing a repo, make sure none of its workflows run `on: issues` or `on: issue_comment`,
+or every pause and resume will start a (paid) run there.
 
 ### Overrides
 
@@ -146,6 +158,7 @@ See [action.yml](action.yml). The main ones:
 | `owner-type` | `user` | `org` for an organization (token needs org Administration: read). |
 | `redact` | `auto` | Hide private names when the running repo is public. |
 | `state-repo` | this repo | Keep the status issue elsewhere (e.g. a private repo). |
+| `state-token` | `github-token` | Token for `state-repo` (Issues: read and write on it). |
 | `webhook-url` | | JSON POST on pause/resume. Includes real names, so pass it from a secret. |
 
 ## Try it locally first

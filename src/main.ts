@@ -15,6 +15,15 @@ function runningRepoIsPublic(): boolean {
   return true;
 }
 
+/** Whether the state repo's issues are public. Unknown → assume public (redact). */
+async function repoIsPublic(gh: GitHub, repo: string): Promise<boolean> {
+  try {
+    return !(await gh.request<{ private: boolean }>("GET", `/repos/${repo}`)).private;
+  } catch {
+    return true;
+  }
+}
+
 /** GitHub auto-disables schedules in public repos after 60 days without activity. */
 async function keepalive(token: string): Promise<void> {
   const ref = process.env.GITHUB_WORKFLOW_REF; // owner/repo/.github/workflows/x.yml@refs/...
@@ -37,11 +46,19 @@ async function main() {
   const token = core.getInput("token", { required: true });
   core.setSecret(token);
   const workflowToken = core.getInput("github-token");
-  const stateRepo = core.getInput("state-repo") || process.env.GITHUB_REPOSITORY!;
-  const stateToken = core.getInput("state-token") || workflowToken;
-  const trusted = [cfg.owner, repoOwner!, "github-actions[bot]", ...core.getInput("trusted-authors").split(/[\s,]+/)];
+  const runningRepo = process.env.GITHUB_REPOSITORY ?? "";
+  const stateRepo = core.getInput("state-repo") || runningRepo;
+  const elsewhere = stateRepo.toLowerCase() !== runningRepo.toLowerCase();
+  const stateGh = new GitHub(core.getInput("state-token") || workflowToken);
+  // In the pacer's own repo, github-actions[bot] is the pacer. In any other repo it is that
+  // repo's own workflows, so it must not be trusted to author state there.
+  const bot = elsewhere ? [] : ["github-actions[bot]"];
+  const trusted = [cfg.owner, repoOwner!, ...bot, ...core.getInput("trusted-authors").split(/[\s,]+/)];
+  const stateRedact = (core.getInput("state-redact") || "auto").toLowerCase();
+  cfg.stateRedact =
+    stateRedact === "auto" ? (elsewhere ? await repoIsPublic(stateGh, stateRepo) : cfg.redact) : stateRedact !== "false";
   const store = new IssueStore(
-    new GitHub(stateToken),
+    stateGh,
     stateRepo,
     core.getInput("state-issue-title") || "Actions spend pacer",
     trusted.filter(Boolean),

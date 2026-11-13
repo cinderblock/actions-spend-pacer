@@ -18471,12 +18471,12 @@ async function run(cfg, deps) {
     allowList: cfg.allowList,
     includeDynamic: cfg.includeDynamic
   });
-  const reportFor = (outcome) => renderReport({
+  const reportFor = (outcome, redact = cfg.redact) => renderReport({
     now,
     owner: cfg.owner,
     mode: cfg.mode,
     timezone: cfg.timezone,
-    redact: cfg.redact,
+    redact,
     headroom: cfg.headroom,
     allowance: a,
     spend,
@@ -18495,7 +18495,7 @@ async function run(cfg, deps) {
   const report = reportFor(outcome);
   const changed = outcome.paused.length + outcome.resumed.length > 0;
   if (changed || outcome.failed.length) {
-    await store.notify(report);
+    await store.notify(reportFor(outcome, cfg.stateRedact ?? cfg.redact));
     if (cfg.webhookUrl)
       await postWebhook(cfg, deps, outcome, base).catch((e) => log(`Webhook failed: ${e.message}`));
   }
@@ -18504,6 +18504,7 @@ async function run(cfg, deps) {
 async function apply(cfg, deps, prev, d, reportFor) {
   const { gh, store, now, log } = deps;
   const n = namer(cfg.owner, cfg.redact);
+  const issueReport = (o) => reportFor(o, cfg.stateRedact ?? cfg.redact);
   const outcome = { paused: [], resumed: [], failed: [] };
   const paused = new Map;
   for (const e of [...d.stillPaused, ...d.toResume])
@@ -18514,7 +18515,7 @@ async function apply(cfg, deps, prev, d, reportFor) {
   const snapshot = () => ({ version: 1, paused: [...paused.values()], overrides: d.overrides, grants: d.grants });
   const stateChanged = intents.length > 0 || d.dropped.length > 0 || d.toResume.length > 0 || d.overrides.length !== prev.overrides.length || d.grants.length !== prev.grants.length;
   if (stateChanged)
-    await store.save(snapshot(), reportFor());
+    await store.save(snapshot(), issueReport());
   for (const w of d.toPause) {
     try {
       await setEnabled(gh, cfg.owner, w.repo, w.id, false);
@@ -18535,7 +18536,7 @@ async function apply(cfg, deps, prev, d, reportFor) {
       outcome.failed.push({ what: `resume ${n.wf(e)}`, error: err.message });
     }
   }
-  await store.save(snapshot(), reportFor(outcome));
+  await store.save(snapshot(), issueReport(outcome));
   return outcome;
 }
 async function postWebhook(cfg, deps, o, base) {
@@ -18681,6 +18682,13 @@ function runningRepoIsPublic() {
   } catch {}
   return true;
 }
+async function repoIsPublic(gh, repo) {
+  try {
+    return !(await gh.request("GET", `/repos/${repo}`)).private;
+  } catch {
+    return true;
+  }
+}
 async function keepalive(token) {
   const ref = process.env.GITHUB_WORKFLOW_REF;
   const m = ref ? /^([^/]+\/[^/]+)\/(.+?)@/.exec(ref) : null;
@@ -18701,10 +18709,15 @@ async function main() {
   const token = getInput("token", { required: true });
   setSecret(token);
   const workflowToken = getInput("github-token");
-  const stateRepo = getInput("state-repo") || process.env.GITHUB_REPOSITORY;
-  const stateToken = getInput("state-token") || workflowToken;
-  const trusted = [cfg.owner, repoOwner, "github-actions[bot]", ...getInput("trusted-authors").split(/[\s,]+/)];
-  const store = new IssueStore(new GitHub(stateToken), stateRepo, getInput("state-issue-title") || "Actions spend pacer", trusted.filter(Boolean));
+  const runningRepo = process.env.GITHUB_REPOSITORY ?? "";
+  const stateRepo = getInput("state-repo") || runningRepo;
+  const elsewhere = stateRepo.toLowerCase() !== runningRepo.toLowerCase();
+  const stateGh = new GitHub(getInput("state-token") || workflowToken);
+  const bot = elsewhere ? [] : ["github-actions[bot]"];
+  const trusted = [cfg.owner, repoOwner, ...bot, ...getInput("trusted-authors").split(/[\s,]+/)];
+  const stateRedact = (getInput("state-redact") || "auto").toLowerCase();
+  cfg.stateRedact = stateRedact === "auto" ? elsewhere ? await repoIsPublic(stateGh, stateRepo) : cfg.redact : stateRedact !== "false";
+  const store = new IssueStore(stateGh, stateRepo, getInput("state-issue-title") || "Actions spend pacer", trusted.filter(Boolean));
   try {
     const result = await run(cfg, { gh: new GitHub(token), store, now: new Date, log: (m) => info(m) });
     await summary.addRaw(result.report).write();

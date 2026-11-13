@@ -145,4 +145,14 @@ describe("run", () => {
     expect(r.report).not.toMatch(/secret|launch|Launch/i);
     expect(r.report).toContain(redactRepo("me", "secret-project"));
   });
+
+  test("private state repo: issue shows real names, public summary stays redacted", async () => {
+    const repos = { "secret-project": [{ id: 7, path: ".github/workflows/launch.yml", name: "Launch", state: "active" }] };
+    const { gh } = fakeGitHub({ spend: 20, repos });
+    const store = new MemoryStore();
+    const r = await run(cfg({ redact: true, stateRedact: false }), { gh, store, now, log });
+    expect(r.report).not.toMatch(/secret|launch/i);
+    expect(store.saved.at(-1)?.status).toContain("secret-project");
+    expect(store.notes.at(-1)).toContain("secret-project");
+  });
 });

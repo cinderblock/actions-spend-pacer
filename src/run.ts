@@ -18,6 +18,8 @@ export interface Config {
   mode: Mode;
   timezone: string;
   redact: boolean;
+  /** Redaction for what goes into the state issue. Defaults to `redact`; false when the state repo is private. */
+  stateRedact?: boolean;
   webhookUrl?: string;
 }
 
@@ -62,13 +64,13 @@ export async function run(cfg: Config, deps: Deps): Promise<RunResult> {
     includeDynamic: cfg.includeDynamic,
   });
 
-  const reportFor = (outcome?: Outcome) =>
+  const reportFor = (outcome?: Outcome, redact = cfg.redact) =>
     renderReport({
       now,
       owner: cfg.owner,
       mode: cfg.mode,
       timezone: cfg.timezone,
-      redact: cfg.redact,
+      redact,
       headroom: cfg.headroom,
       allowance: a,
       spend,
@@ -88,7 +90,7 @@ export async function run(cfg: Config, deps: Deps): Promise<RunResult> {
   const report = reportFor(outcome);
   const changed = outcome.paused.length + outcome.resumed.length > 0;
   if (changed || outcome.failed.length) {
-    await store.notify(report);
+    await store.notify(reportFor(outcome, cfg.stateRedact ?? cfg.redact));
     if (cfg.webhookUrl) await postWebhook(cfg, deps, outcome, base).catch((e) => log(`Webhook failed: ${e.message}`));
   }
   return { ...base, outcome, report, changed };
@@ -104,10 +106,11 @@ async function apply(
   deps: Deps,
   prev: State,
   d: Decision,
-  reportFor: (o?: Outcome) => string,
+  reportFor: (o?: Outcome, redact?: boolean) => string,
 ): Promise<Outcome> {
   const { gh, store, now, log } = deps;
   const n = namer(cfg.owner, cfg.redact);
+  const issueReport = (o?: Outcome) => reportFor(o, cfg.stateRedact ?? cfg.redact);
   const outcome: Outcome = { paused: [], resumed: [], failed: [] };
   const paused = new Map<string, PausedEntry>();
   for (const e of [...d.stillPaused, ...d.toResume]) paused.set(key(e.repo, e.workflowId), e);
@@ -123,7 +126,7 @@ async function apply(
     d.toResume.length > 0 ||
     d.overrides.length !== prev.overrides.length ||
     d.grants.length !== prev.grants.length;
-  if (stateChanged) await store.save(snapshot(), reportFor()); // fails → nothing disabled
+  if (stateChanged) await store.save(snapshot(), issueReport()); // fails → nothing disabled
 
   for (const w of d.toPause) {
     try {
@@ -145,7 +148,7 @@ async function apply(
       outcome.failed.push({ what: `resume ${n.wf(e)}`, error: (err as Error).message });
     }
   }
-  await store.save(snapshot(), reportFor(outcome));
+  await store.save(snapshot(), issueReport(outcome));
   return outcome;
 }
 

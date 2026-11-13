@@ -54,11 +54,14 @@ inputs:
   state-token:
     description: Token for state-repo when it is not this repo (Issues read/write on it). Defaults to github-token.
     required: false
+  state-redact:
+    description: "`auto` (show real names in the status issue only when state-repo is a private repo other than this one), `true` or `false`."
+    default: auto
   state-issue-title:
     description: Title for the status issue created on the first live run.
     default: Actions spend pacer
   trusted-authors:
-    description: Extra logins whose issues may hold state (owner and github-actions[bot] are always trusted).
+    description: Extra logins whose issues may hold state (the owner is always trusted; github-actions[bot] only when the status issue is in this repo).
     required: false
   webhook-url:
     description: Optional URL that receives a JSON POST when workflows are paused or resumed. Pass it from a secret; it includes real repo names.
