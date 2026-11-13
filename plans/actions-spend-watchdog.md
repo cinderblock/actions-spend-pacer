@@ -303,6 +303,14 @@ or (B) encrypted in the public issue with a key secret. Recommendation: A.
    (D) Actions variable on the pacer repo (not public, 48 KB; PAT needs Variables: write;
    no notifications by itself; needs building);
    (E) accept private repo names being public (not recommended).
+   **User proposed 2026-11-12: an issue in `cinderblock/ops`** (private). Checked: issues are
+   enabled, and no ops workflow triggers on `issues`/`issue_comment` (cloudflare.yml and
+   credential-expiry.yml only *open* issues), so pacer writes start no paid runs there. Built
+   for it (`626b31e`): the issue gets real names while the public summary stays redacted, and
+   `github-actions[bot]` is not trusted outside the pacer repo. Pending: one token or two
+   (fine-grained PAT permissions apply to every selected repo, so Issues: write on the main
+   token would cover all private repos; recommended a second PAT, ops only, Issues: read/write,
+   as `PACER_STATE_TOKEN`).
 
 ## Things not to do
 
