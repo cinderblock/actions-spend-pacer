@@ -50,8 +50,8 @@ to run and doesn't eat into the spend it's watching. Create a public repo (e.g.
 | Resource owner | You (or the org) |
 | Expiration | Up to you. The pacer warns in its summary 14 days before expiry. |
 | Repository access | **All repositories**, or **Only select repositories** with the private repos to govern |
-| Repository permissions → **Actions** | **Read and write** |
-| Account permissions → **Plan** | **Read-only** (user accounts; this is the billing usage API) |
+| **Repositories** tab → Add permissions → **Actions** | **Read and write** |
+| **Account** tab → Add permissions → **Plan** | **Read-only** (user accounts; this is the billing usage API) |
 | Organization permissions → **Administration** | **Read-only** (org owners only, instead of Plan) |
 
 Nothing else. In particular **no Contents** and **no repo Administration**.
