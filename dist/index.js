@@ -18055,6 +18055,11 @@ function catchUpDay(a, spend, headroom, granted = 0) {
 }
 
 // src/config.ts
+function positiveHours(h) {
+  if (!(h > 0))
+    throw new Error(`control-hours must be a positive number, got ${h}.`);
+  return h;
+}
 function parseConfig(get, defaults) {
   const s = (n) => get(n)?.trim() || undefined;
   const list = (n) => (s(n) ?? "").split(/[\n,]/).map((x) => x.replace(/#.*$/, "").trim()).filter(Boolean);
@@ -18101,6 +18106,7 @@ function parseConfig(get, defaults) {
     ownerType,
     allowance,
     headroom: num("resume-headroom") ?? 0.5,
+    controlHours: positiveHours(num("control-hours") ?? 4),
     repos,
     allowList: list("allow-list"),
     includeDynamic: bool("include-dynamic", false),
@@ -18238,6 +18244,12 @@ function renderReport(r) {
   if (!paused.length && !resumed.length) {
     out.push(live ? "No changes this run." : "No changes would be made.", "");
   }
+  if (r.ticks?.length) {
+    out.push("### From the status issue", "");
+    for (const t of r.ticks)
+      out.push(t.kind === "resume" ? `- Ticked: run ${n.wf(t.entry)} until ${formatTime(new Date(t.override.until), r.timezone)}` : `- Unticked: override ${r.redact ? "(redacted)" : `\`${t.override.match}\``} ended`);
+    out.push("");
+  }
   if (r.outcome?.failed.length) {
     out.push("### ⚠️ Failures", "");
     for (const f of r.outcome.failed)
@@ -18336,6 +18348,59 @@ async function fetchSpend(gh, ownerType, owner, year, month) {
   if (!Array.isArray(res?.usageItems))
     throw new Error("Billing usage response has no usageItems array.");
   return summarizeUsage(res.usageItems, year, month);
+}
+
+// src/controls.ts
+import { createHash as createHash2 } from "node:crypto";
+var LINE = /^\s*[-*] \[( |x|X)\] .*<!-- pacer:(resume|override):([A-Za-z0-9_-]+) -->\s*$/;
+function parseTicks(body) {
+  const ticks = [];
+  for (const line of (body ?? "").split(/\r?\n/)) {
+    const m = LINE.exec(line);
+    if (m)
+      ticks.push({ kind: m[2], key: m[3], checked: m[1] !== " " });
+  }
+  return ticks;
+}
+var resumeKey = (owner, e) => `${redactRepo(owner, e.repo)}-${e.workflowId}`;
+var overrideKey = (o) => createHash2("sha256").update(`${o.match}|${o.until}`).digest("hex").slice(0, 10);
+function applyTicks(state, ticks, owner, now, hours) {
+  const applied = [];
+  let overrides = [...state.overrides];
+  for (const t of ticks) {
+    if (t.kind === "resume" && t.checked) {
+      const entry = state.paused.find((e) => resumeKey(owner, e) === t.key);
+      if (!entry)
+        continue;
+      const override = {
+        match: `${entry.repo}/${entry.path}`,
+        until: new Date(now.getTime() + hours * 3600000).toISOString(),
+        reason: "ticked in the status issue"
+      };
+      overrides = [...overrides.filter((o) => o.match !== override.match), override];
+      applied.push({ kind: "resume", entry, override });
+    } else if (t.kind === "override" && !t.checked) {
+      const override = overrides.find((o) => overrideKey(o) === t.key);
+      if (!override)
+        continue;
+      overrides = overrides.filter((o) => o !== override);
+      applied.push({ kind: "end", override });
+    }
+  }
+  return { state: { ...state, overrides }, applied };
+}
+function renderControls(c) {
+  if (!c.paused.length && !c.overrides.length)
+    return "";
+  const n = namer(c.owner, c.redact);
+  const out = ["### Controls", "", "Tick or untick a box; the next run acts on it.", ""];
+  for (const e of c.paused)
+    out.push(`- [ ] Run ${n.wf(e)} for ${c.hours}h <!-- pacer:resume:${resumeKey(c.owner, e)} -->`);
+  for (const o of c.overrides)
+    out.push(`- [x] Override ${c.redact ? "(redacted)" : `\`${o.match}\``} until ${formatTime(new Date(o.until), c.timezone)} (untick to end it) <!-- pacer:override:${overrideKey(o)} -->`);
+  out.push("");
+  return out.join(`
+`);
 }
 
 // src/match.ts
@@ -18455,7 +18520,8 @@ async function run(cfg, deps) {
   const a = allowanceAt(now, cfg.allowance);
   const spend = await fetchSpend(gh, cfg.ownerType, cfg.owner, a.year, a.month);
   log(`Spend ${spend.total.toFixed(2)} vs allowance ${a.amount.toFixed(2)}`);
-  const state = await store.load();
+  const loaded = await store.load();
+  const { state, applied: ticks } = applyTicks(loaded, store.controls?.() ?? [], cfg.owner, now, cfg.controlHours ?? 4);
   const repos = await governedRepos(gh, cfg.ownerType, cfg.owner, cfg.repos);
   const inv = await inventory(gh, cfg.owner, repos);
   log(`${repos.length} governed repos, ${inv.workflows.length} workflows, ${inv.failedRepos.size} unreadable`);
@@ -18486,12 +18552,13 @@ async function run(cfg, deps) {
     governedRepoCount: repos.length,
     workflowCount: inv.workflows.length,
     tokenExpiration: gh.tokenExpiration,
-    stateLocation: store.describe()
+    stateLocation: store.describe(),
+    ticks
   });
   const base = { decision, spend: spend.total, allowance: decision.effectiveAllowance };
   if (cfg.mode !== "live")
     return { ...base, report: reportFor(), changed: false };
-  const outcome = await apply(cfg, deps, state, decision, reportFor);
+  const outcome = await apply(cfg, deps, loaded, decision, reportFor);
   const report = reportFor(outcome);
   const changed = outcome.paused.length + outcome.resumed.length > 0;
   if (changed || outcome.failed.length) {
@@ -18504,7 +18571,20 @@ async function run(cfg, deps) {
 async function apply(cfg, deps, prev, d, reportFor) {
   const { gh, store, now, log } = deps;
   const n = namer(cfg.owner, cfg.redact);
-  const issueReport = (o) => reportFor(o, cfg.stateRedact ?? cfg.redact);
+  const stateRedact = cfg.stateRedact ?? cfg.redact;
+  const issueReport = (o) => [
+    reportFor(o, stateRedact),
+    renderControls({
+      owner: cfg.owner,
+      redact: stateRedact,
+      timezone: cfg.timezone,
+      hours: cfg.controlHours ?? 4,
+      paused: [...paused.values()],
+      overrides: d.overrides
+    })
+  ].filter(Boolean).join(`
+
+`);
   const outcome = { paused: [], resumed: [], failed: [] };
   const paused = new Map;
   for (const e of [...d.stillPaused, ...d.toResume])
@@ -18513,7 +18593,7 @@ async function apply(cfg, deps, prev, d, reportFor) {
   for (const e of intents)
     paused.set(key(e.repo, e.workflowId), e);
   const snapshot = () => ({ version: 1, paused: [...paused.values()], overrides: d.overrides, grants: d.grants });
-  const stateChanged = intents.length > 0 || d.dropped.length > 0 || d.toResume.length > 0 || d.overrides.length !== prev.overrides.length || d.grants.length !== prev.grants.length;
+  const stateChanged = intents.length > 0 || d.dropped.length > 0 || d.toResume.length > 0 || JSON.stringify(d.overrides) !== JSON.stringify(prev.overrides) || JSON.stringify(d.grants) !== JSON.stringify(prev.grants);
   if (stateChanged)
     await store.save(snapshot(), issueReport());
   for (const w of d.toPause) {
@@ -18653,6 +18733,9 @@ class IssueStore {
     if (ours.length > 1)
       throw new StateError(`Found ${ours.length} open state issues in ${this.repo} (#${ours.map((i) => i.number).join(", #")}); close all but one.`);
     return ours[0];
+  }
+  controls() {
+    return parseTicks(this.issue?.body);
   }
   async load() {
     this.issue = await this.find();

@@ -1,3 +1,4 @@
+import { type Tick, parseTicks } from "./controls.ts";
 import type { GitHub } from "./github.ts";
 import { STATE_MARKER, StateError, parseState, withState } from "./state.ts";
 import type { State } from "./types.ts";
@@ -10,6 +11,8 @@ export interface StateStore {
   /** Post an event (pause/resume) where the owner gets notified. */
   notify(markdown: string): Promise<void>;
   describe(): string;
+  /** Checkbox states in the status as last loaded (see controls.ts). */
+  controls?(): Tick[];
 }
 
 interface ApiIssue {
@@ -55,6 +58,10 @@ export class IssueStore implements StateStore {
     return ours[0];
   }
 
+  controls(): Tick[] {
+    return parseTicks(this.issue?.body);
+  }
+
   async load(): Promise<State> {
     this.issue = await this.find();
     return this.issue ? parseState(this.issue.body) : emptyState();
@@ -79,15 +86,21 @@ export class IssueStore implements StateStore {
 export class MemoryStore implements StateStore {
   saved: { state: State; status: string }[] = [];
   notes: string[] = [];
+  /** Checkbox states, as if the owner had ticked them in the issue. */
+  ticks: Tick[] = [];
   constructor(public state: State = emptyState()) {}
   describe() {
     return "memory";
+  }
+  controls() {
+    return this.ticks;
   }
   async load() {
     return structuredClone(this.state);
   }
   async save(state: State, status: string) {
     this.state = structuredClone(state);
+    this.ticks = parseTicks(status); // re-rendered boxes replace the owner's ticks
     this.saved.push({ state: this.state, status });
   }
   async notify(md: string) {

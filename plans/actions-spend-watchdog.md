@@ -257,6 +257,22 @@ or (B) encrypted in the public issue with a key secret. Recommendation: A.
   if still over budget it is paused again on that same run (consistent, not "skip once").
   Overrides are the supported way to keep something running.
 
+### Status-issue checkboxes (user said "sure", 2026-11-13)
+
+The status issue ends with a Controls list: `- [ ] Run <wf> for 4h` per paused workflow
+(tick → a `control-hours` override, so the next run resumes it) and `- [x] Override … until …`
+per active override (untick → it ends). Each line carries an opaque key in a hidden comment
+(`pacer:resume:repo-<hash>-<id>`, `pacer:override:<hash>`), so no names leak in a public issue.
+Saving re-renders the boxes, which consumes the ticks. Code: `src/controls.ts`.
+Ticks only act on the next run; the issue is in ops and the pacer runs in the public repo, so an
+issue edit can't trigger it directly. Proposed: run the pacer hourly (free in a public repo).
+
+### Renovate tick-triggered run (user: "that's reasonable", 2026-11-13)
+
+Idea: have ops `renovate.yml` also run when the dependency dashboard (ops#11) is edited by the
+user, so a tick acts at once. It's an ops change: belongs to the ops/Renovate work, needs the
+user's yes on the exact diff. Each run processes the whole ops repo, not only the ticked item.
+
 ## Plan / steps
 
 1. Plan doc + proposed name/layout → user yes. **Done.**
@@ -310,7 +326,7 @@ or (B) encrypted in the public issue with a key secret. Recommendation: A.
    `github-actions[bot]` is not trusted outside the pacer repo. Pending: one token or two
    (fine-grained PAT permissions apply to every selected repo, so Issues: write on the main
    token would cover all private repos; recommended a second PAT, ops only, Issues: read/write,
-   as `PACER_STATE_TOKEN`).
+   as `PACER_STATE_TOKEN`). **User chose two tokens (2026-11-13).**
 
 ## Things not to do
 

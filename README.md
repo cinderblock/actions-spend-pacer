@@ -114,6 +114,18 @@ redacted (`state-redact: auto`).
 Before choosing a repo, make sure none of its workflows run `on: issues` or `on: issue_comment`,
 or every pause and resume will start a (paid) run there.
 
+### Checkboxes in the status issue
+
+The status issue ends with a **Controls** list you can use from your phone:
+
+- `- [ ] Run <workflow> for 4h`, one per paused workflow. Tick it, and the next run turns it
+  into a 4-hour override (`control-hours`) and re-enables the workflow.
+- `- [x] Override <match> until <time>`, one per active override. Untick it to end the
+  override; the next run pauses the workflow again if the account is still over.
+
+Ticks take effect on the next scheduled run, not instantly. If a tick lands while a run is
+writing the issue, the run can overwrite it; tick again.
+
 ### Overrides
 
 To let one workflow run while the account is over (an urgent deploy, say), add a time-limited
@@ -158,6 +170,7 @@ See [action.yml](action.yml). The main ones:
 | `owner-type` | `user` | `org` for an organization (token needs org Administration: read). |
 | `redact` | `auto` | Hide private names when the running repo is public. |
 | `state-repo` | this repo | Keep the status issue elsewhere (e.g. a private repo). |
+| `control-hours` | `4` | How long a ticked "Run … for 4h" box lets a workflow run. |
 | `state-token` | `github-token` | Token for `state-repo` (Issues: read and write on it). |
 | `webhook-url` | | JSON POST on pause/resume. Includes real names, so pass it from a secret. |
 

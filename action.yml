@@ -54,6 +54,9 @@ inputs:
   state-token:
     description: Token for state-repo when it is not this repo (Issues read/write on it). Defaults to github-token.
     required: false
+  control-hours:
+    description: How long ticking "Run ... for Nh" in the status issue lets a paused workflow run.
+    default: "4"
   state-redact:
     description: "`auto` (show real names in the status issue only when state-repo is a private repo other than this one), `true` or `false`."
     default: auto

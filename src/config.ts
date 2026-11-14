@@ -2,6 +2,11 @@ import { validateAllowanceConfig } from "./allowance.ts";
 import type { Config } from "./run.ts";
 
 /** Read raw string inputs (action inputs or CLI flags) into a validated Config. */
+function positiveHours(h: number): number {
+  if (!(h > 0)) throw new Error(`control-hours must be a positive number, got ${h}.`);
+  return h;
+}
+
 export function parseConfig(get: (name: string) => string | undefined, defaults: { owner?: string; repoIsPublic?: boolean }): Config {
   const s = (n: string) => get(n)?.trim() || undefined;
   const list = (n: string) =>
@@ -51,6 +56,7 @@ export function parseConfig(get: (name: string) => string | undefined, defaults:
     ownerType,
     allowance,
     headroom: num("resume-headroom") ?? 0.5,
+    controlHours: positiveHours(num("control-hours") ?? 4),
     repos,
     allowList: list("allow-list"),
     includeDynamic: bool("include-dynamic", false),

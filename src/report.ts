@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { type Allowance, catchUpDay, grantTotal } from "./allowance.ts";
 import type { Spend } from "./billing.ts";
+import type { Applied } from "./controls.ts";
 import type { Decision } from "./plan.ts";
 import type { Mode, PausedEntry, Workflow } from "./types.ts";
 
@@ -26,6 +27,8 @@ export interface ReportInput {
   workflowCount: number;
   tokenExpiration?: Date;
   stateLocation: string;
+  /** Checkbox changes picked up from the status issue this run. */
+  ticks?: Applied[];
 }
 
 const usd = (x: number) => `$${x.toFixed(2)}`;
@@ -105,6 +108,16 @@ export function renderReport(r: ReportInput): string {
   }
   if (!paused.length && !resumed.length) {
     out.push(live ? "No changes this run." : "No changes would be made.", "");
+  }
+  if (r.ticks?.length) {
+    out.push("### From the status issue", "");
+    for (const t of r.ticks)
+      out.push(
+        t.kind === "resume"
+          ? `- Ticked: run ${n.wf(t.entry)} until ${formatTime(new Date(t.override.until), r.timezone)}`
+          : `- Unticked: override ${r.redact ? "(redacted)" : `\`${t.override.match}\``} ended`,
+      );
+    out.push("");
   }
   if (r.outcome?.failed.length) {
     out.push("### ⚠️ Failures", "");
