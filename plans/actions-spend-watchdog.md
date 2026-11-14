@@ -298,7 +298,12 @@ user's yes on the exact diff. Each run processes the whole ops repo, not only th
 - [ ] User reviews dry run and answers the state-location question
 - [x] GitHub repo created and pushed (approved 2026-11-11)
 - [ ] State location chosen (open question 2)
-- [ ] PAT + secret (needs yes)
+- [x] Status-issue checkboxes (`e3424a5`), 51 tests passing
+- [ ] Tokens, walked one step at a time (user does each):
+  1. Main PAT `actions-spend-pacer` (Plan: read, Actions: read/write) ← **step given 2026-11-13**
+  2. Save it as `PACER_TOKEN` in the pacer repo's Actions secrets
+  3. State PAT `actions-spend-pacer-state` (ops only, Issues: read/write)
+  4. Save it as `PACER_STATE_TOKEN` in the pacer repo's Actions secrets
 - [ ] Grant at go-live (approved; ~$9 at current numbers)
 - [ ] Schedule enabled in dry-run (needs yes)
 - [ ] Live mode (needs yes)
